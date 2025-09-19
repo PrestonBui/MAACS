@@ -6,7 +6,7 @@ output: html_document
 
 ## Name
 
-Please enter your name here.
+Preston Bui
 
 ### Setup
 
@@ -15,7 +15,10 @@ Read in the data with `read_csv()` and store the data as an R object named `data
 
 ```{r}
 ## Load the data and any necessary packages here.
+library(tidyverse)
+library(broom)
 
+dataset <- readr::read_csv("maacs.csv.gz")
 ```
 
 ## Part 1
@@ -32,7 +35,12 @@ NOTE: For this part, do not use any plots.
 
 ```{r}
 ## Write your function here
+fev1_age_check <- function(data) {
+  z <- with(data, cor(age, fev1, use = "complete.obs"))
+  isTRUE(z > 0)
+}
 
+fev1_age_check(dataset)
 ```
 
 
@@ -44,11 +52,24 @@ How much does FEV1 change for a 1-year increase in the child's age?
 
 ```{r}
 ## Add your code here
+mod_age <- lm(fev1 ~ age, data = dataset)
 
+mod_sum <- summary(mod_age)
+coef_age   <- unname(coef(mod_age)["age"])
+ci_age     <- confint(mod_age)["age", ]
+r2_age     <- unname(mod_sum$r.squared)
+cor_age_fv <- with(dataset, cor(age, fev1, use = "complete.obs"))
+
+coef_age_r <- round(coef_age, 3)
+ci_age_l_r <- round(ci_age[1], 3)
+ci_age_u_r <- round(ci_age[2], 3)
+r2_age_r   <- round(r2_age, 3)
+cor_r      <- round(cor_age_fv, 3)
 ```
 
-
 Write your data analysis statement interpreting the regression model here:
+
+- In this baseline observational sample, age shows a positive linear association with FEV1. A one-year increase in age is associated with an average FEV1 increase of `r coef_age_r` L (95% CI `r ci_age_l_r`, `r ci_age_u_r`), explaining `r r2_age_r` of the variance in FEV1.
 
 
 
@@ -64,17 +85,34 @@ NOTE:
 
 ```{r}
 ## Add your code here
+age_med <- median(dataset$age, na.rm = TRUE)
+by_age_tbl <- dataset |>
+  mutate(age_group = ifelse(age < age_med, "Younger", "Older")) |>
+  group_by(age_group) |>
+  summarize(mean_fev1 = mean(fev1, na.rm = TRUE), .groups = "drop")
+
+by_age_tbl
+
+library(ggplot2)
+p_scatter <- ggplot(dataset, aes(x = age, y = fev1)) +
+  geom_point(alpha = 0.6, na.rm = TRUE) +
+  geom_smooth(method = "lm", se = TRUE) +
+  labs(title = "FEV1 vs Age with Linear Fit", x = "Age (years)", y = "FEV1 (L)")
+p_scatter
+
+cor_test <- with(dataset, cor.test(age, fev1, use = "complete.obs"))
+cor_test
 
 ```
 
 
 Write the three supporting premise statements here:
 
-1. 
+1. *Group Means:* Children in the Older group (median age and above) have a higher mean FEV1 ( `r by_age_tbl$mean_fev1[by_age_tbl$age_group=="Older"]` liters) compared to children in the Younger group ( `r by_age_tbl$mean_fev1[by_age_tbl$age_group=="Younger"]` liters).
 
-2. 
+2. *Scatterplot Trend:* The scatterplot of FEV1 versus age shows a clear upward linear trend with age, supported by the fitted regression line and confidence interval.
 
-3. 
+3. *Correlation Test:* The Pearson correlation between age and FEV1 is positive ( `r round(cor_test$estimate,3)` ) and highly statistically significant ( p < `r format.pval(cor_test$p.value, digits=3) `), with a 95% confidence interval from `r round(cor_test$conf.int[1],3)` to `r round(cor_test$conf.int[2],3)`.
 
 
 ## Part 4
@@ -90,19 +128,60 @@ For statements involving plots, instead of returning `TRUE` or `FALSE`, you func
 
 ```{r}
 ## Function for supporting premise statement 1
-
+premise1 <- function(data) {
+  stopifnot(all(c("age","fev1") %in% names(data)))
+  med <- stats::median(data$age, na.rm = TRUE)
+  tab <- data |>
+    dplyr::mutate(age_group = ifelse(age < med, "Younger", "Older")) |>
+    dplyr::group_by(age_group) |>
+    dplyr::summarize(mean_fev1 = mean(fev1, na.rm = TRUE), .groups = "drop")
+  # guard against missing groups
+  if (!all(c("Younger","Older") %in% tab$age_group)) return(NA)
+  mean_older   <- tab$mean_fev1[tab$age_group == "Older"]
+  mean_younger <- tab$mean_fev1[tab$age_group == "Younger"]
+  isTRUE(mean_older > mean_younger)
+}
 ```
 
 
 ```{r}
 ## Function for supporting premise statement 2
+premise2 <- function(data) {
+  stopifnot(all(c("age","fev1") %in% names(data)))
+  p_obs <- ggplot2::ggplot(data, ggplot2::aes(x = age, y = fev1)) +
+    ggplot2::geom_point(alpha = 0.6, na.rm = TRUE) +
+    ggplot2::geom_smooth(method = "lm", se = TRUE) +
+    ggplot2::labs(title = "Observed: FEV1 vs Age", x = "Age (years)", y = "FEV1 (L)")
+  print(p_obs)
 
+  rng <- range(data$age, na.rm = TRUE)
+  sim <- tibble::tibble(
+    age  = seq(rng[1], rng[2], length.out = 150),
+    fev1 = 0.8 + 0.18 * age + stats::rnorm(150, 0, 0.15)
+  )
+  p_hyp <- ggplot2::ggplot(sim, ggplot2::aes(x = age, y = fev1)) +
+    ggplot2::geom_point(alpha = 0.6) +
+    ggplot2::geom_smooth(method = "lm", se = TRUE, color = "darkgreen") +
+    ggplot2::labs(title = "Hypothetical (if true): FEV1 vs Age", x = "Age (years)", y = "FEV1 (L)")
+  print(p_hyp)
+
+  invisible(NULL)
+}
 ```
 
 
 ```{r}
 ## Function for supporting premise statement 3
+premise3 <- function(data, alpha = 0.05) {
+  stopifnot(all(c("age","fev1") %in% names(data)))
+  ct <- with(data, stats::cor.test(age, fev1, use = "complete.obs"))
+  isTRUE(unname(ct$estimate) > 0 & ct$p.value < alpha)
+}
 
+
+premise1(dataset)   # TRUE/FALSE
+premise2(dataset)   # prints observed + hypothetical plots
+premise3(dataset)   # TRUE/FALSE (expects TRUE here)
 ```
 
 Execute each of your function and show that the produce the expected output.
